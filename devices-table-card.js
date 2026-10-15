@@ -12,7 +12,7 @@
  * https://github.com/Lordhmen/devices-table-card
  * Лицензия: MIT. История изменений — CHANGELOG.md.
  */
-const DTC_VERSION = "0.2.1";
+const DTC_VERSION = "0.2.2";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -518,7 +518,8 @@ class DevicesTableCard extends HTMLElement {
         .msg { padding: 18px 8px; text-align: center; color: var(--secondary-text-color); }
         .msg.ok { color: var(--dtc-ok); }
         .foot { margin-top: 8px; font-size: .75em; color: var(--secondary-text-color); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-        @container (max-width: 560px) { .c-mac, .c-dur { display: none; } }
+        @container (max-width: 760px) { .c-mac { display: none; } }
+        @container (max-width: 560px) { .c-dur { display: none; } }
         @container (max-width: 430px) {
           .c-net, .c-ip { display: none; }
           .nm .sub { display: block; }
