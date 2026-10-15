@@ -12,7 +12,7 @@
  * https://github.com/Lordhmen/devices-table-card
  * Лицензия: MIT. История изменений — CHANGELOG.md.
  */
-const DTC_VERSION = "0.1.0";
+const DTC_VERSION = "0.2.0";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -45,6 +45,7 @@ const DTC_STRINGS = {
   h: "ч",
   d: "д",
   justnow: "только что",
+  ignored: "не отслеживается",
 };
 
 function relTime(ms, now = Date.now()) {
@@ -79,6 +80,8 @@ const MODES = {
     columns: [
       { key: "name", title: "Устройство", cls: "c-name" },
       { key: "kind", title: "Тип", cls: "c-net" },
+      { key: "status", title: "Статус", cls: "c-st", all: true,
+        sort: (r) => (r.state === "offline" ? "0" : r.state === "online" ? "1" : "2") + String(r.name).toLowerCase() },
       { key: "since", title: "Не в сети с", cls: "c-ip", sort: (r) => String(r.since).padStart(16, "0") },
       { key: "dur", title: "Длительность", cls: "c-st", sort: (r) => String(r.since).padStart(16, "0") },
     ],
@@ -114,7 +117,7 @@ class DevicesTableCard extends HTMLElement {
     this._incRe = (this._config.include || []).map(globRe);
     this._excRe = (this._config.exclude || []).map(globRe);
     this._filter = this._config.default_filter || "all";
-    this._sortKey = this._config.sort || this._mode.defaultSort;
+    this._sortKey = this._config.sort || (mode === "availability" && this._config.show_all ? "status" : this._mode.defaultSort);
     this._sortDir = this._config.sort_desc ? -1 : 1;
     this._query = "";
     this._sig = null;
@@ -124,9 +127,10 @@ class DevicesTableCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    const rows = this._collect();
+    let rows = this._collect();
     const stats = this._sources(rows);
-    const sig = JSON.stringify([!!this._unavailable, hass?.user?.is_admin, stats, rows.map((r) => [r.id, r.state, r.since, r.ip, r.known, r.name, r.net])]);
+    if (this._config.mode === "availability" && this._config.show_all && this._members) rows = this._mergeAll(rows);
+    const sig = JSON.stringify([!!this._unavailable, hass?.user?.is_admin, stats, rows.map((r) => [r.id, r.state, r.since, r.ip, r.known, r.name, r.net, r.kind])]);
     if (sig === this._sig) return;
     this._sig = sig;
     this._rows = rows;
@@ -140,12 +144,28 @@ class DevicesTableCard extends HTMLElement {
     if (!Array.isArray(list) || !list.length) return null;
     const h = this._hass;
     const ents = h.entities || {};
+    const members = new Map();
+    this._members = members;
     return list.map((s) => {
       const ids = new Set();
+      const kinds0 = s.kinds || [s.name];
       const add = (id) => {
         const reg = ents[id];
-        if (s.count === "entities" || !reg?.device_id) ids.add(id);
-        else ids.add(reg.device_id);
+        const byEntity = s.count === "entities" || !reg?.device_id;
+        const key = byEntity ? id : reg.device_id;
+        ids.add(key);
+        if (members.has(key)) return;
+        let kind = kinds0[0];
+        if (kinds0.length > 1 && id.startsWith("device_tracker.")) {
+          const a = h.states[id]?.attributes || {};
+          const wired = a.connection_type === "wired" || /^device_tracker\.lan_/.test(id);
+          kind = kinds0.find((k) => (wired ? /lan|провод/i : /wi-?fi/i).test(k)) || kind;
+        }
+        const dev = byEntity ? null : h.devices?.[key];
+        const name = s.names?.[id] || s.names?.[key]
+          || (byEntity ? (h.states[id]?.attributes?.friendly_name || id) : (dev?.name_by_user || dev?.name || key));
+        const labels = byEntity ? (reg?.labels || []) : (dev?.labels || []);
+        members.set(key, { key, name, kind, ignored: labels.includes(this._config.ignore_label) });
       };
       if (s.platform) for (const id of Object.keys(ents)) if (ents[id].platform === s.platform && !ents[id].hidden) add(id);
       if (s.include) {
@@ -160,6 +180,33 @@ class DevicesTableCard extends HTMLElement {
       const off = rows.filter((r) => kinds.includes(r.kind)).length;
       return { name: s.name, total: ids.size, off };
     });
+  }
+
+  // Все устройства из sources: офлайн берём из сенсора, остальные — «в сети» или «не отслеживается»
+  _mergeAll(offline) {
+    const byKey = new Set(offline.flatMap((r) => [r.id, r.entity]).filter(Boolean));
+    const out = [...offline];
+    for (const m of this._members.values()) {
+      if (byKey.has(m.key)) continue;
+      out.push({
+        id: m.key,
+        name: m.name,
+        kind: m.kind,
+        state: m.ignored ? "ignored" : "online",
+        online: !m.ignored,
+        ignored: m.ignored,
+        since: 0,
+        isHub: false,
+        isEntity: m.key.includes("."),
+        isDevice: /^[0-9a-f]{32}$/i.test(m.key),
+      });
+    }
+    return out;
+  }
+
+  _columns() {
+    const all = this._config.mode === "availability" && this._config.show_all;
+    return this._mode.columns.filter((c) => !c.all || all);
   }
 
   _renderStats() {
@@ -267,6 +314,7 @@ class DevicesTableCard extends HTMLElement {
         online: false,
         since: Date.parse(d.since) || 0,
         isHub: key.startsWith("hub:"),
+        entity: d.entity || "",
         isEntity: key.includes("."),
         isDevice: /^[0-9a-f]{32}$/i.test(key),
       };
@@ -277,7 +325,7 @@ class DevicesTableCard extends HTMLElement {
     switch (key) {
       case "since": return r.since;
       case "dur": return r.since;
-      case "status": return r.online ? DTC_STRINGS.online : r.state === "unavailable" ? DTC_STRINGS.nodata : DTC_STRINGS.offline;
+      case "status": return r.ignored ? DTC_STRINGS.ignored : r.online ? DTC_STRINGS.online : r.state === "unavailable" ? DTC_STRINGS.nodata : DTC_STRINGS.offline;
       default: return r[key] ?? "";
     }
   }
@@ -285,7 +333,11 @@ class DevicesTableCard extends HTMLElement {
   _filters() {
     if (this._config.mode !== "availability") return this._mode.filters;
     const kinds = [...new Set(this._rows.map((r) => r.kind).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
-    return [this._mode.filters[0], ...kinds.map((k) => ({ key: `k:${k}`, title: k, fn: (r) => r.kind === k }))];
+    const extra = this._config.show_all
+      ? [{ key: "offline", title: "Не в сети", fn: (r) => r.state === "offline" },
+         ...(this._rows.some((r) => r.ignored) ? [{ key: "ignored", title: "Не отслеживаются", fn: (r) => r.ignored }] : [])]
+      : [];
+    return [this._mode.filters[0], ...extra, ...kinds.map((k) => ({ key: `k:${k}`, title: k, fn: (r) => r.kind === k }))];
   }
 
   _visible() {
@@ -294,7 +346,8 @@ class DevicesTableCard extends HTMLElement {
     const q = this._query.trim().toLowerCase();
     let rows = this._rows.filter(f.fn);
     if (q) rows = rows.filter((r) => [r.name, r.ip, r.mac, r.net, r.kind, r.id].some((v) => String(v || "").toLowerCase().includes(q)));
-    const col = this._mode.columns.find((x) => x.key === this._sortKey) || this._mode.columns[0];
+    const cols = this._columns();
+    const col = cols.find((x) => x.key === this._sortKey) || cols[0];
     const key = col.sort || ((r) => String(this._cell(r, col.key)).toLowerCase());
     const dir = this._sortDir;
     return rows.slice().sort((a, b) => {
@@ -339,14 +392,15 @@ class DevicesTableCard extends HTMLElement {
         await h.callWS({ type: "config/entity_registry/update", entity_id: r.id, labels });
       } else {
         const label = c.ignore_label;
-        if (!confirm(`Не отслеживать доступность «${r.name}»?\nНа устройство будет поставлена метка, его можно вернуть, сняв её.`)) return;
+        const add = !r.ignored;
+        if (!confirm(add ? `Не отслеживать доступность «${r.name}»?\nБудет поставлена метка, её можно снять той же кнопкой (в режиме show_all) или в настройках.`
+          : `Снова отслеживать доступность «${r.name}»?`)) return;
+        const apply = (cur) => (add ? [...new Set([...(cur || []), label])] : (cur || []).filter((l) => l !== label));
         if (r.isDevice) {
-          const dev = h.devices?.[r.id];
-          const labels = [...new Set([...(dev?.labels || []), label])];
-          await h.callWS({ type: "config/device_registry/update", device_id: r.id, labels });
+          await h.callWS({ type: "config/device_registry/update", device_id: r.id, labels: apply(h.devices?.[r.id]?.labels) });
         } else if (r.isEntity) {
           const reg = await h.callWS({ type: "config/entity_registry/get", entity_id: r.id });
-          await h.callWS({ type: "config/entity_registry/update", entity_id: r.id, labels: [...new Set([...(reg.labels || []), label])] });
+          await h.callWS({ type: "config/entity_registry/update", entity_id: r.id, labels: apply(reg.labels) });
         }
       }
       this._toast("Сохранено. Список обновится в течение минуты.");
@@ -360,12 +414,12 @@ class DevicesTableCard extends HTMLElement {
   }
 
   _csv() {
-    const cols = this._mode.columns;
+    const cols = this._columns();
     const rows = this._visible();
     const val = (r, k) => {
-      if (k === "since") return this._fmtDate(r.since);
+      if (k === "since") return r.since ? this._fmtDate(r.since) : "";
       if (k === "dur") return r.since ? relTime(r.since) : "";
-      if (k === "status") return r.online ? DTC_STRINGS.online : `${DTC_STRINGS.offline} ${this._fmtDate(r.since)}`;
+      if (k === "status") return r.ignored ? DTC_STRINGS.ignored : r.online ? DTC_STRINGS.online : `${DTC_STRINGS.offline} ${this._fmtDate(r.since)}`;
       if (k === "name" && this._config.mode === "network") return r.name;
       return this._cell(r, k);
     };
@@ -463,7 +517,7 @@ class DevicesTableCard extends HTMLElement {
         .msg { padding: 18px 8px; text-align: center; color: var(--secondary-text-color); }
         .msg.ok { color: var(--dtc-ok); }
         .foot { margin-top: 8px; font-size: .75em; color: var(--secondary-text-color); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-        @container (max-width: 560px) { .c-mac { display: none; } }
+        @container (max-width: 560px) { .c-mac, .c-dur { display: none; } }
         @container (max-width: 430px) {
           .c-net, .c-ip { display: none; }
           .nm .sub { display: block; }
@@ -538,9 +592,11 @@ class DevicesTableCard extends HTMLElement {
     const c = this._config;
     if (c.mode === "availability") {
       const icon = r.isHub ? "mdi:router-network" : r.kind === "Zigbee" ? "mdi:zigbee" : r.kind === "ESPHome" ? "mdi:chip"
-        : r.kind === "Wi-Fi" ? "mdi:wifi-off" : r.kind === "LAN" ? "mdi:ethernet-off" : "mdi:lan-disconnect";
-      const sub = [r.kind, this._fmtDate(r.since)].filter(Boolean).join(" · ");
-      return `<div class="nm"><ha-icon class="i-bad" icon="${icon}"></ha-icon><div class="tx"><div class="t1">${esc(r.name)}</div><div class="sub">${esc(sub)}</div></div></div>`;
+        : r.kind === "Wi-Fi" ? (r.online ? "mdi:wifi" : "mdi:wifi-off") : r.kind === "LAN" ? (r.online ? "mdi:ethernet" : "mdi:ethernet-off")
+        : r.online ? "mdi:lan-connect" : "mdi:lan-disconnect";
+      const sub = [r.kind, r.since ? this._fmtDate(r.since) : r.ignored ? DTC_STRINGS.ignored : ""].filter(Boolean).join(" · ");
+      const icls = r.ignored ? "i-na" : r.online ? "i-ok" : "i-bad";
+      return `<div class="nm"><ha-icon class="${icls}" icon="${icon}"></ha-icon><div class="tx"><div class="t1">${esc(r.name)}</div><div class="sub">${esc(sub)}</div></div></div>`;
     }
     const icon = r.wired ? (r.online ? "mdi:ethernet" : "mdi:ethernet-off") : (r.online ? "mdi:wifi" : "mdi:wifi-off");
     const cls = r.state === "unavailable" ? "i-na" : !r.online ? "i-bad" : r.known ? "i-ok" : "i-unk";
@@ -551,6 +607,7 @@ class DevicesTableCard extends HTMLElement {
   }
 
   _statusCell(r) {
+    if (r.ignored) return `<span class="st" title="${DTC_STRINGS.ignored}"><span class="dot na"></span><span class="lbl">${DTC_STRINGS.ignored}</span></span>`;
     if (r.online) return `<span class="st" title="${DTC_STRINGS.online}"><span class="dot ok"></span><span class="lbl">${DTC_STRINGS.online}</span></span>`;
     if (r.state === "unavailable") return `<span class="st" title="${DTC_STRINGS.nodata}"><span class="dot na"></span><span class="lbl">${DTC_STRINGS.nodata}</span></span>`;
     return `<span class="st" title="${DTC_STRINGS.offline}"><span class="dot bad"></span><span class="lbl">${DTC_STRINGS.offline}${r.since ? ` <span class="ago">${relTime(r.since)}</span>` : ""}</span></span>`;
@@ -564,8 +621,9 @@ class DevicesTableCard extends HTMLElement {
       const title = r.known ? "Убрать из известных" : "Добавить в известные";
       return `<td class="c-act"><button class="act" title="${title}" aria-label="${title}"><ha-icon icon="${icon}"></ha-icon></button></td>`;
     }
-    if (r.isHub) return `<td class="c-act"></td>`;
-    return `<td class="c-act"><button class="act" title="Не отслеживать доступность" aria-label="Не отслеживать доступность"><ha-icon icon="mdi:bell-off-outline"></ha-icon></button></td>`;
+    if (r.isHub || (!r.isDevice && !r.isEntity)) return `<td class="c-act"></td>`;
+    const t = r.ignored ? "Снова отслеживать доступность" : "Не отслеживать доступность";
+    return `<td class="c-act"><button class="act" title="${t}" aria-label="${t}"><ha-icon icon="${r.ignored ? "mdi:bell-outline" : "mdi:bell-off-outline"}"></ha-icon></button></td>`;
   }
 
   _renderBody() {
@@ -594,7 +652,7 @@ class DevicesTableCard extends HTMLElement {
       return;
     }
 
-    const cols = this._mode.columns;
+    const cols = this._columns();
     const hasAct = c.actions && this._hass?.user?.is_admin;
     const head = cols.map((col) => {
       const on = col.key === this._sortKey;
@@ -607,8 +665,8 @@ class DevicesTableCard extends HTMLElement {
           case "name": return `<td class="c-name">${this._nameCell(r)}</td>`;
           case "ip": return `<td class="c-ip">${esc(r.ip || "—")}${r.reserved ? `<span class="r" title="IP из статической DHCP-резервации роутера, аренды нет">резерв</span>` : ""}</td>`;
           case "status": return `<td class="c-st">${this._statusCell(r)}</td>`;
-          case "since": return `<td class="c-ip">${esc(this._fmtDate(r.since))}</td>`;
-          case "dur": return `<td class="c-st">${r.since ? esc(relTime(r.since)) : "—"}</td>`;
+          case "since": return `<td class="c-ip">${r.since ? esc(this._fmtDate(r.since)) : "—"}</td>`;
+          case "dur": return `<td class="c-st c-dur">${r.since ? esc(relTime(r.since)) : "—"}</td>`;
           default: return `<td class="${col.cls}">${esc(r[col.key] || "—")}</td>`;
         }
       }).join("");
@@ -622,7 +680,7 @@ class DevicesTableCard extends HTMLElement {
     cntEl.textContent = rows.length === this._rows.length ? `Всего: ${rows.length}` : `Показано ${rows.length} из ${this._rows.length}`;
     hintEl.textContent = c.mode === "network"
       ? (hasAct ? "Строка — карточка, кнопка справа — в известные" : "")
-      : (hasAct ? "Строка — страница устройства, кнопка справа — не отслеживать" : "");
+      : (hasAct ? `Строка — страница устройства, кнопка справа — ${c.show_all ? "отслеживать / не отслеживать" : "не отслеживать"}` : "");
   }
 }
 

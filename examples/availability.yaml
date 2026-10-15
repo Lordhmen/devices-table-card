@@ -4,6 +4,7 @@ title: Доступность устройств
 icon: mdi:lan-disconnect
 entity: sensor.offline_devices
 ignore_label: ne_otslezhivat_dostupnost
+show_all: true          # все устройства, а не только «не в сети»
 sources:
   - name: ESPHome
     platform: esphome

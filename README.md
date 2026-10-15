@@ -9,7 +9,8 @@
 - **`network`** — сетевые устройства из трекеров (`device_tracker`): IP, Wi-Fi 2.4/5 ГГц или порт LAN, MAC, статус.
   Известные устройства отмечаются меткой, неизвестные подсвечиваются; пометить устройство можно кнопкой прямо в строке.
 - **`availability`** — устройства «не в сети» из списка в атрибуте сенсора, плитки «в сети / всего» по источникам
-  (ESPHome, Zigbee, сеть…), кнопка «не отслеживать».
+  (ESPHome, Zigbee, сеть…), кнопка «не отслеживать». С `show_all: true` — **все** устройства источников
+  со статусом: не в сети, в сети, не отслеживается.
 
 ![Сетевые устройства](docs/screenshot-network.png)
 
@@ -45,7 +46,7 @@
 
 1. Скачайте `devices-table-card.js` со страницы [релизов](https://github.com/Lordhmen/devices-table-card/releases)
    и положите в `/config/www/devices-table-card.js`.
-2. **Настройки → Панели → ⋮ → Ресурсы → Добавить ресурс**: URL `/local/devices-table-card.js?v=0.1.0`, тип **JavaScript-модуль**.
+2. **Настройки → Панели → ⋮ → Ресурсы → Добавить ресурс**: URL `/local/devices-table-card.js?v=0.2.0`, тип **JavaScript-модуль**.
 
 ## Режим `network`
 
@@ -105,7 +106,21 @@ sources:
 - `key` с точкой — `entity_id`: клик открывает карточку сущности.
 - `key` с префиксом `hub:` — шлюз, без действий.
 
-`sources` — плитки над таблицей. Для каждой считается «всего» и «не в сети» (строки, у которых `kind` входит в `kinds`, по умолчанию `[name]`):
+### Все устройства (`show_all`)
+
+![Все устройства](docs/screenshot-all.png)
+
+С `show_all: true` в таблицу попадают все устройства из `sources`: те, что есть в списке сенсора, — «не в сети»,
+остальные — «в сети», а помеченные `ignore_label` (на устройстве или сущности) — «не отслеживается» (серые, в конце).
+Добавляются колонка «Статус» (сортировка по ней по умолчанию: сначала не в сети) и фильтры «Не в сети», «Не отслеживаются».
+Кнопка в строке ставит или снимает метку «не отслеживать».
+
+- Тип строки «в сети» берётся из `kinds` источника; для трекеров при `kinds: [Wi-Fi, LAN]` проводные
+  (`connection_type: wired` или `device_tracker.lan_*`) получают второй тип, беспроводные — первый.
+- Шлюзы: если элемент списка с ключом `hub:…` содержит `entity`, источник с этой сущностью не даёт дубль.
+- `names` в источнике — свои подписи: `names: {sensor.ont_heartbeat: "ONT"}`.
+
+`sources` — плитки над таблицей (и список устройств для `show_all`). Для каждой считается «всего» и «не в сети» (строки, у которых `kind` входит в `kinds`, по умолчанию `[name]`):
 
 | Ключ | Что считает |
 |---|---|
@@ -113,6 +128,8 @@ sources:
 | `include` | сущности по маске `entity_id` (строка или список) |
 | `label` (+ `domain`) | сущности с меткой |
 | `count` | `devices` (по умолчанию, уникальные устройства) или `entities` |
+| `kinds` | типы строк этого источника (по умолчанию `[name]`) |
+| `names` | словарь `entity_id` / `device_id` → подпись (для `show_all`) |
 
 ## Параметры
 
@@ -127,8 +144,9 @@ sources:
 | `entity`, `attribute` | —, `devices` | `availability`: сенсор и атрибут со списком |
 | `ignore_label` | `ne_otslezhivat_dostupnost` | `availability`: метка «не отслеживать» |
 | `sources` | — | `availability`: плитки по источникам |
-| `sort`, `sort_desc` | `ip` / `since`, `false` | Колонка и направление сортировки при открытии |
-| `default_filter` | `all` | Фильтр при открытии (`unknown`, `offline`, `wifi`, `lan`) |
+| `show_all` | `false` | `availability`: показывать все устройства источников, а не только «не в сети» |
+| `sort`, `sort_desc` | `ip` / `since` (`status` при `show_all`), `false` | Колонка и направление сортировки при открытии |
+| `default_filter` | `all` | Фильтр при открытии (`unknown`, `offline`, `wifi`, `lan`; при `show_all` — `offline`, `ignored`) |
 | `actions` | `true` | Кнопка метки в строке (видна только администраторам) |
 | `search`, `csv` | `true` | Поиск и кнопка CSV |
 | `empty_text` | — | Текст при пустом списке |
@@ -141,7 +159,7 @@ sources:
 node --check devices-table-card.js
 node --test tests/*.test.mjs
 python3 -m http.server   # затем открыть /docs/demo.html — демо без Home Assistant
-                         # параметры: ?view=availability, ?theme=light, ?width=380
+                         # параметры: ?view=availability|all, ?theme=light, ?width=380
 ```
 
 Релиз собирается автоматически: поднимите `DTC_VERSION` в `devices-table-card.js`, допишите `CHANGELOG.md` и отправьте в `main`.

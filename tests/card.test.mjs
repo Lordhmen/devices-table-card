@@ -155,3 +155,51 @@ test("availability: плитки источников и фильтры по т�
   assert.deepEqual(c._stats, [{ name: "ESPHome", total: 2, off: 1 }, { name: "Сеть", total: 2, off: 0 }]);
   assert.deepEqual(c._filters().map((f) => f.key), ["all", "k:ESPHome"]);
 });
+
+test("availability show_all: все устройства из sources, статусы, метка, шлюзы без дублей", () => {
+  const c = new DTC();
+  c.setConfig({ mode: "availability", entity: "sensor.off", show_all: true, sources: [
+    { name: "ESPHome", platform: "esphome" },
+    { name: "Сеть", kinds: ["Wi-Fi", "LAN"], label: "izvestnoe_ustroistvo", domain: "device_tracker", count: "entities" },
+    { name: "Шлюзы", kinds: ["Шлюз"], include: "sensor.ont_hb", count: "entities", names: { "sensor.ont_hb": "ONT" } },
+  ] });
+  const h = {
+    config: {}, user: { is_admin: true },
+    devices: { d1: { name: "Boiler" }, d2: { name: "Heater", name_by_user: "Нагреватель" }, d3: { name: "Old", labels: ["ne_otslezhivat_dostupnost"] } },
+    entities: {
+      "sensor.a": { platform: "esphome", device_id: "d1" }, "sensor.c": { platform: "esphome", device_id: "d2" },
+      "sensor.e": { platform: "esphome", device_id: "d3" },
+      "device_tracker.x": { platform: "openwrt_ubus", labels: ["izvestnoe_ustroistvo"] },
+      "device_tracker.lan_y": { platform: "mqtt", labels: ["izvestnoe_ustroistvo"] },
+    },
+    states: {
+      "device_tracker.x": { state: "home", attributes: { friendly_name: "Kettle" } },
+      "device_tracker.lan_y": { state: "home", attributes: { friendly_name: "NAS", connection_type: "wired" } },
+      "sensor.ont_hb": { state: "unavailable", attributes: {} },
+      "sensor.off": { state: "2", attributes: { devices: [
+        { key: "d2", name: "Нагреватель", kind: "ESPHome", since: "2026-10-14T19:44:36Z" },
+        { key: "hub:ont", entity: "sensor.ont_hb", name: "ONT", kind: "Шлюз", since: "2026-10-15T05:00:00Z" },
+      ] } },
+    },
+  };
+  c.hass = h;
+  const by = Object.fromEntries(c._rows.map((r) => [r.name, r]));
+  assert.equal(c._rows.length, 6, "d1, d2, d3, x, lan_y, hub — без дубля шлюза");
+  assert.equal(by["Boiler"].state, "online");
+  assert.equal(by["Нагреватель"].state, "offline");
+  assert.equal(by["Old"].state, "ignored");
+  assert.equal(by["Kettle"].kind, "Wi-Fi");
+  assert.equal(by["NAS"].kind, "LAN");
+  assert.deepEqual(c._stats.map((s) => [s.total, s.off]), [[3, 1], [2, 0], [1, 1]]);
+  // сортировка по статусу: сначала не в сети, в конце не отслеживаемые
+  const order = c._visible().map((r) => r.state);
+  assert.deepEqual(order, ["offline", "offline", "online", "online", "online", "ignored"]);
+  assert.deepEqual(c._filters().map((f) => f.key).slice(0, 3), ["all", "offline", "ignored"]);
+  c._filter = "offline";
+  assert.equal(c._visible().length, 2);
+  assert.equal(c._columns().some((x) => x.key === "status"), true);
+  // без show_all колонки «Статус» нет
+  const c2 = new DTC();
+  c2.setConfig({ mode: "availability", entity: "sensor.off" });
+  assert.equal(c2._columns().some((x) => x.key === "status"), false);
+});

@@ -5,7 +5,8 @@ A Lovelace card for Home Assistant: a **devices table** with sorting, filters an
 - **`network`** — network devices from `device_tracker` entities: IP, Wi-Fi 2.4/5 GHz or LAN port, MAC, status.
   Known devices are marked with a label, unknown ones are highlighted; a button in each row adds or removes the label.
 - **`availability`** — "offline" devices from a list in a sensor attribute, "online / total" tiles per source,
-  and a "don't monitor" button.
+  and a "don't monitor" button. With `show_all: true` it lists **all** devices of the sources with a status:
+  offline, online, not monitored.
 
 ![Network devices](docs/screenshot-network.png)
 
