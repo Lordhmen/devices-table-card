@@ -12,7 +12,7 @@
  * https://github.com/Lordhmen/devices-table-card
  * Лицензия: MIT. История изменений — CHANGELOG.md.
  */
-const DTC_VERSION = "0.2.0";
+const DTC_VERSION = "0.2.1";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -165,7 +165,7 @@ class DevicesTableCard extends HTMLElement {
         const name = s.names?.[id] || s.names?.[key]
           || (byEntity ? (h.states[id]?.attributes?.friendly_name || id) : (dev?.name_by_user || dev?.name || key));
         const labels = byEntity ? (reg?.labels || []) : (dev?.labels || []);
-        members.set(key, { key, name, kind, ignored: labels.includes(this._config.ignore_label) });
+        members.set(key, { key, name, kind, noAct: s.actions === false, ignored: labels.includes(this._config.ignore_label) });
       };
       if (s.platform) for (const id of Object.keys(ents)) if (ents[id].platform === s.platform && !ents[id].hidden) add(id);
       if (s.include) {
@@ -197,6 +197,7 @@ class DevicesTableCard extends HTMLElement {
         ignored: m.ignored,
         since: 0,
         isHub: false,
+        noAct: m.noAct,
         isEntity: m.key.includes("."),
         isDevice: /^[0-9a-f]{32}$/i.test(m.key),
       });
@@ -621,7 +622,7 @@ class DevicesTableCard extends HTMLElement {
       const title = r.known ? "Убрать из известных" : "Добавить в известные";
       return `<td class="c-act"><button class="act" title="${title}" aria-label="${title}"><ha-icon icon="${icon}"></ha-icon></button></td>`;
     }
-    if (r.isHub || (!r.isDevice && !r.isEntity)) return `<td class="c-act"></td>`;
+    if (r.isHub || r.noAct || (!r.isDevice && !r.isEntity)) return `<td class="c-act"></td>`;
     const t = r.ignored ? "Снова отслеживать доступность" : "Не отслеживать доступность";
     return `<td class="c-act"><button class="act" title="${t}" aria-label="${t}"><ha-icon icon="${r.ignored ? "mdi:bell-outline" : "mdi:bell-off-outline"}"></ha-icon></button></td>`;
   }
