@@ -1,0 +1,10 @@
+type: custom:devices-table-card
+mode: network
+title: Сетевые устройства
+icon: mdi:lan
+platforms:
+  - openwrt_ubus
+include:
+  - device_tracker.lan_*
+reservations_entity: sensor.openwrt_dhcp_reservations
+known_label: izvestnoe_ustroistvo

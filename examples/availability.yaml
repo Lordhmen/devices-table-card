@@ -1,0 +1,16 @@
+type: custom:devices-table-card
+mode: availability
+title: Доступность устройств
+icon: mdi:lan-disconnect
+entity: sensor.offline_devices
+ignore_label: ne_otslezhivat_dostupnost
+sources:
+  - name: ESPHome
+    platform: esphome
+  - name: Zigbee
+    include: sensor.*_last_seen
+  - name: Сеть
+    kinds: [Wi-Fi, LAN]
+    label: izvestnoe_ustroistvo
+    domain: device_tracker
+    count: entities
