@@ -11,6 +11,8 @@
 - **`availability`** — устройства «не в сети» из списка в атрибуте сенсора, плитки «в сети / всего» по источникам
   (ESPHome, Zigbee, сеть…), кнопка «не отслеживать».
 
+![Сетевые устройства](docs/screenshot-network.png)
+
 Сестринский проект [stats-table-card](https://github.com/Lordhmen/stats-table-card): тот же стиль, один JS-файл без зависимостей.
 
 ## Возможности
@@ -24,6 +26,12 @@
 - Кнопка в строке ставит/снимает метку через реестр HA (только для администраторов).
 - Экспорт видимых строк в CSV для Excel (разделитель `;`, UTF-8 с BOM).
 - Тёмная и светлая темы через CSS-переменные HA; на узкой карточке IP и сеть переходят под имя.
+
+| Светлая тема | Узкая карточка (телефон) |
+|---|---|
+| ![Светлая тема](docs/screenshot-light.png) | ![На телефоне](docs/screenshot-mobile.png) |
+
+Все скриншоты сняты с демо-страницы [`docs/demo.html`](docs/demo.html) на вымышленных данных.
 
 ## Установка
 
@@ -66,6 +74,8 @@ known_label: izvestnoe_ustroistvo
 `reservations_entity` — сенсор с атрибутом `hosts`: `{"AA:BB:CC:DD:EE:FF": {"ip": "192.168.1.10", "name": "…"}}`.
 
 ## Режим `availability`
+
+![Доступность устройств](docs/screenshot-availability.png)
 
 ```yaml
 type: custom:devices-table-card
@@ -130,6 +140,8 @@ sources:
 ```bash
 node --check devices-table-card.js
 node --test tests/*.test.mjs
+python3 -m http.server   # затем открыть /docs/demo.html — демо без Home Assistant
+                         # параметры: ?view=availability, ?theme=light, ?width=380
 ```
 
 Релиз собирается автоматически: поднимите `DTC_VERSION` в `devices-table-card.js`, допишите `CHANGELOG.md` и отправьте в `main`.

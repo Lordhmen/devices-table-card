@@ -7,6 +7,8 @@ A Lovelace card for Home Assistant: a **devices table** with sorting, filters an
 - **`availability`** — "offline" devices from a list in a sensor attribute, "online / total" tiles per source,
   and a "don't monitor" button.
 
+![Network devices](docs/screenshot-network.png)
+
 Single JS file, no dependencies. Sister project of [stats-table-card](https://github.com/Lordhmen/stats-table-card).
 
 ## Install
